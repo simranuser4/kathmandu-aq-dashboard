@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from map_visualization import create_sensor_map
 
 # ------------------------------------------------
 # PAGE CONFIG
@@ -68,7 +69,7 @@ PM2.5 refers to airborne fine particulate matter smaller than 2.5 micrometers as
 # ------------------------------------------------
 
 df = pd.read_csv("clean_kathmandu_pm25.csv")
-sensor_df = pd.read_csv("nepal_pm25_sensors.csv")
+sensor_df = pd.read_csv("kathmandu_pm25_sensors.csv")
 
 df.columns = df.columns.str.strip()
 sensor_df.columns = sensor_df.columns.str.strip()
@@ -747,38 +748,233 @@ with tab2:
 # TAB 3 - INTERPOLATED HEATMAP
 # =================================================
 
+
 with tab3:
 
     st.header("Interpolated PM2.5 Heatmap")
 
-    # USE LAST GENERATED PIVOT
-    pivot_interp = pivot.interpolate(
-        axis=1,
-        limit_direction="both"
+    interp_type = st.selectbox(
+        "Interpolated Heatmap Type",
+        ["Monthly", "Yearly"],
+        key="interp_heatmap_type"
     )
 
-    fig6 = px.imshow(
-        pivot_interp,
-        aspect="auto",
-        color_continuous_scale="RdYlGn_r",
-        labels=dict(
-            x="Time Axis",
-            y="Hour",
-            color="Interpolated PM2.5"
+    # ------------------------------------------------
+    # MONTHLY INTERPOLATED
+    # ------------------------------------------------
+
+    if interp_type == "Monthly":
+
+        years = sorted(df["year"].unique())
+
+        interp_year = st.selectbox(
+            "Select Year",
+            years,
+            index=len(years)-1,
+            key="interp_month_year"
         )
-    )
 
-    fig6.update_layout(
-        template="plotly_white",
-        title="Interpolated PM2.5 Heatmap",
-        title_x=0.02,
-        height=600
-    )
+        interp_month = st.selectbox(
+            "Select Month",
+            list(month_labels.keys()),
+            format_func=lambda x: month_labels[x],
+            key="interp_month"
+        )
 
-    st.plotly_chart(
-        fig6,
-        use_container_width=True
-    )
+        interp_df = df[
+            (df["year"] == interp_year) &
+            (df["month"] == interp_month)
+        ]
+
+        sensor_interp = (
+            interp_df
+            .groupby(
+                ["location_name", "day", "hour"]
+            )["pm25"]
+            .mean()
+            .reset_index()
+        )
+
+        interp_heat = (
+            sensor_interp
+            .groupby(["day", "hour"])["pm25"]
+            .mean()
+            .reset_index()
+        )
+
+        pivot_interp = interp_heat.pivot(
+            index="hour",
+            columns="day",
+            values="pm25"
+        )
+
+        # ALL DAYS
+        pivot_interp = pivot_interp.reindex(
+            columns=range(1, 32)
+        )
+
+        # ALL HOURS
+        pivot_interp = pivot_interp.reindex(
+            index=range(24)
+        )
+
+        # INTERPOLATION
+        pivot_interp = pivot_interp.interpolate(
+            axis=1,
+            limit_direction="both"
+        )
+
+        # 12-HOUR LABELS
+        pivot_interp.index = [
+            hour_labels[h]
+            for h in pivot_interp.index
+        ]
+
+        fig6 = px.imshow(
+            pivot_interp,
+            aspect="auto",
+            color_continuous_scale="RdYlGn_r",
+            labels=dict(
+                x="Day",
+                y="Time",
+                color="PM2.5"
+            )
+        )
+
+        fig6.update_layout(
+            template="plotly_white",
+            title=f"Interpolated Monthly Heatmap — {month_labels[interp_month]} {interp_year}",
+            title_x=0.02,
+            height=600,
+            xaxis=dict(
+                tickmode="linear",
+                dtick=1
+            )
+        )
+
+        st.plotly_chart(
+            fig6,
+            use_container_width=True
+        )
+
+    # ------------------------------------------------
+    # YEARLY INTERPOLATED
+    # ------------------------------------------------
+
+    else:
+
+        years = sorted(df["year"].unique())
+
+        interp_year = st.selectbox(
+            "Select Year",
+            years,
+            index=len(years)-1,
+            key="interp_year"
+        )
+
+        interp_df = df[
+            df["year"] == interp_year
+        ]
+
+        sensor_interp = (
+            interp_df
+            .groupby(
+                ["location_name", "month", "hour"]
+            )["pm25"]
+            .mean()
+            .reset_index()
+        )
+
+        interp_heat = (
+            sensor_interp
+            .groupby(["month", "hour"])["pm25"]
+            .mean()
+            .reset_index()
+        )
+
+        pivot_interp = interp_heat.pivot(
+            index="hour",
+            columns="month",
+            values="pm25"
+        )
+
+        # ALL MONTHS
+        pivot_interp = pivot_interp.reindex(
+            columns=range(1, 13)
+        )
+
+        # ALL HOURS
+        pivot_interp = pivot_interp.reindex(
+            index=range(24)
+        )
+
+        # INTERPOLATION
+        pivot_interp = pivot_interp.interpolate(
+            axis=1,
+            limit_direction="both"
+        )
+
+        # MONTH LABELS
+        pivot_interp.columns = [
+            month_short[m]
+            for m in pivot_interp.columns
+        ]
+
+        # 12-HOUR LABELS
+        pivot_interp.index = [
+            hour_labels[h]
+            for h in pivot_interp.index
+        ]
+
+        fig6 = px.imshow(
+            pivot_interp,
+            aspect="auto",
+            color_continuous_scale="RdYlGn_r",
+            labels=dict(
+                x="Month",
+                y="Time",
+                color="PM2.5"
+            )
+        )
+
+        fig6.update_layout(
+            template="plotly_white",
+            title=f"Interpolated Yearly Heatmap — {interp_year}",
+            title_x=0.02,
+            height=600
+        )
+
+        st.plotly_chart(
+            fig6,
+            use_container_width=True
+        )
+
+# =================================================
+# SENSOR MAP
+# =================================================
+
+st.header("Kathmandu Sensor Map")
+map_dates = sorted(
+    df["date"].unique()
+)
+
+selected_map_date = st.selectbox(
+    "Select Map Date",
+    map_dates,
+    index=len(map_dates)-1,
+    key="map_date"
+)
+map_fig = create_sensor_map(
+    df,
+    selected_map_date
+)
+
+st.plotly_chart(
+    map_fig,
+    use_container_width=True
+)
+
+
 # ------------------------------------------------
 # SUMMARY STATISTICS
 # ------------------------------------------------
