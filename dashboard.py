@@ -985,3 +985,230 @@ st.dataframe(
     df["pm25"].describe(),
     use_container_width=True
 )
+
+# ------------------------------------------------
+# Kathmandu PM2.5 Exposure Summary Report
+# ------------------------------------------------
+#DAILY REPORT TABLE
+# ------------------------------------------------
+# KATHMANDU PM2.5 EXPOSURE SUMMARY REPORT
+# ------------------------------------------------
+
+st.header("Kathmandu PM2.5 Exposure Summary Report")
+
+# DAILY EXPOSURE REPORT
+
+daily_report = (
+    df.groupby("date")
+    .agg(
+        avg_pm25=("pm25", "mean"),
+        min_pm25=("pm25", "min"),
+        max_pm25=("pm25", "max"),
+        sensors_used=("location_name", "nunique")
+    )
+    .reset_index()
+)
+
+# SENSOR LIST
+
+sensor_list = (
+    df.groupby("date")["location_name"]
+    .unique()
+    .reset_index()
+)
+
+sensor_list["location_name"] = (
+    sensor_list["location_name"]
+    .apply(lambda x: ", ".join(sorted(x)))
+)
+
+daily_report = daily_report.merge(
+    sensor_list,
+    on="date",
+    how="left"
+)
+
+# AQ CATEGORY
+
+def categorize(pm25):
+
+    if pm25 <= 15:
+        return "Good"
+
+    elif pm25 <= 35:
+        return "Moderate"
+
+    elif pm25 <= 55:
+        return "Unhealthy for Sensitive Groups"
+
+    elif pm25 <= 150:
+        return "Unhealthy"
+
+    return "Hazardous"
+
+daily_report["AQ Category"] = (
+    daily_report["avg_pm25"]
+    .apply(categorize)
+)
+
+# RENAME COLUMNS
+
+daily_report.rename(
+    columns={
+        "date": "Date",
+        "avg_pm25": "Average PM2.5",
+        "min_pm25": "Minimum PM2.5",
+        "max_pm25": "Maximum PM2.5",
+        "sensors_used": "Sensors Used",
+        "location_name": "Sensors"
+    },
+    inplace=True
+)
+
+# ------------------------------------------------
+# REPORT KPIs
+# ------------------------------------------------
+
+WHO_LIMIT = 15
+
+exceed_days = (
+    daily_report["Average PM2.5"] > WHO_LIMIT
+).sum()
+
+total_days = len(daily_report)
+
+exceed_pct = (
+    exceed_days /
+    total_days
+) * 100
+
+avg_pm25_overall = (
+    daily_report["Average PM2.5"]
+    .mean()
+)
+
+worst_day_pm25 = (
+    daily_report["Average PM2.5"]
+    .max()
+)
+
+k1, k2, k3 = st.columns(3)
+
+k1.metric(
+    "Average PM2.5",
+    f"{avg_pm25_overall:.1f}"
+)
+
+k2.metric(
+    "Worst Daily PM2.5",
+    f"{worst_day_pm25:.1f}"
+)
+
+k3.metric(
+    "WHO Exceedance %",
+    f"{exceed_pct:.1f}%"
+)
+
+# ------------------------------------------------
+# WHO ASSESSMENT
+# ------------------------------------------------
+
+st.markdown(
+    f"""
+### WHO PM2.5 Guideline Assessment
+
+WHO daily PM2.5 guideline: **15 µg/m³**
+
+Observed days in dataset: **{total_days}**
+
+Days exceeding WHO guideline: **{exceed_days}**
+
+Percentage of days exceeding guideline: **{exceed_pct:.1f}%**
+"""
+)
+
+# ------------------------------------------------
+# AQ CATEGORY DISTRIBUTION
+# ------------------------------------------------
+
+st.subheader("AQ Days Count")
+
+aq_summary = (
+    daily_report["AQ Category"]
+    .value_counts()
+    .reset_index()
+)
+
+aq_summary.columns = [
+    "AQ Category",
+    "Number of Days"
+]
+
+st.dataframe(
+    aq_summary,
+    use_container_width=True
+)
+
+# ------------------------------------------------
+# PM2.5 CATEGORY THRESHOLDS
+# ------------------------------------------------
+
+st.subheader("PM2.5 Category Thresholds")
+
+aq_ranges = pd.DataFrame({
+    "Category": [
+        "Good",
+        "Moderate",
+        "Unhealthy for Sensitive Groups",
+        "Unhealthy",
+        "Hazardous"
+    ],
+    "PM2.5 Range (µg/m³)": [
+        "0 - 15",
+        "15 - 35",
+        "35 - 55",
+        "55 - 150",
+        "> 150"
+    ]
+})
+
+st.dataframe(
+    aq_ranges,
+    use_container_width=True
+)
+
+# ------------------------------------------------
+# DAILY EXPOSURE TABLE
+# ------------------------------------------------
+
+st.subheader("Daily Exposure Report")
+
+st.dataframe(
+    daily_report,
+    use_container_width=True
+)
+
+# ------------------------------------------------
+# DOWNLOAD REPORT
+# ------------------------------------------------
+
+csv = daily_report.to_csv(index=False)
+
+st.download_button(
+    label="Download Exposure Report CSV",
+    data=csv,
+    file_name="kathmandu_pm25_exposure_report.csv",
+    mime="text/csv"
+)
+
+fig_aq = px.bar(
+    aq_summary,
+    x="AQ Category",
+    y="Number of Days",
+    title="Distribution of Air Quality Categories"
+)
+
+st.plotly_chart(
+    fig_aq,
+    use_container_width=True
+)
